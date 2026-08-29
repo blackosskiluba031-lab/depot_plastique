@@ -38,6 +38,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Traitement de la suppression
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'supprimer') {
+    try {
+        $id = intval($_POST['produit_id']);
+        if ($id <= 0) throw new Exception("Identifiant invalide.");
+
+        // Vérifier si le produit est utilisé dans des ventes
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM details_vente WHERE produit_id = ?");
+        $stmt->execute([$id]);
+        $nb_ventes = $stmt->fetchColumn();
+
+        // Vérifier si le produit est utilisé dans des mouvements de stock
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM mouvements_stock WHERE produit_id = ?");
+        $stmt->execute([$id]);
+        $nb_mouvements = $stmt->fetchColumn();
+
+        if ($nb_ventes > 0 || $nb_mouvements > 0) {
+            $details = [];
+            if ($nb_ventes > 0) $details[] = "$nb_ventes vente(s)";
+            if ($nb_mouvements > 0) $details[] = "$nb_mouvements mouvement(s) de stock";
+            throw new Exception("Impossible de supprimer ce produit car il est lié à " . implode(' et ', $details) . ". Supprimez d'abord ces enregistrements.");
+        }
+
+        $stmt = $pdo->prepare("DELETE FROM produits WHERE id = ?");
+        $stmt->execute([$id]);
+
+        $message = "Produit supprimé avec succès !";
+        $message_type = "success";
+    } catch (Exception $e) {
+        $message = "Erreur: " . $e->getMessage();
+        $message_type = "danger";
+    }
+}
+
 // Récupérer les produits
 try {
     $stmt = $pdo->query("SELECT * FROM produits ORDER BY nom_article ASC");
@@ -86,6 +120,14 @@ try {
         }
         .product-card:hover {
             transform: translateY(-3px);
+        }
+        .btn-delete {
+            opacity: 0.7;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        .btn-delete:hover {
+            opacity: 1;
+            transform: scale(1.1);
         }
     </style>
 </head>
@@ -236,6 +278,7 @@ try {
                                             <th>Prix</th>
                                             <th>Seuil</th>
                                             <th>Statut</th>
+                                            <th>Action</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -259,6 +302,15 @@ try {
                                                         <span class="badge bg-success">OK</span>
                                                     <?php endif; ?>
                                                 </td>
+                                                <td>
+                                                    <button type="button"
+                                                        class="btn btn-sm btn-danger btn-delete"
+                                                        title="Supprimer ce produit"
+                                                        onclick="confirmerSuppression(<?= $produit['id'] ?>, '<?= htmlspecialchars(addslashes($produit['nom_article'])) ?>')"
+                                                    >
+                                                        <i class="bi bi-trash3"></i>
+                                                    </button>
+                                                </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>
@@ -269,6 +321,40 @@ try {
                             </div>
                         <?php endif; ?>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de confirmation de suppression -->
+    <div class="modal fade" id="modalSupprimer" tabindex="-1" aria-labelledby="modalSupprimerLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="modalSupprimerLabel">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmer la suppression
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-1">Vous allez supprimer le produit :</p>
+                    <p class="fw-bold fs-5 text-danger" id="nomProduitASupprimer"></p>
+                    <div class="alert alert-warning mt-2 mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Cette action est <strong>irréversible</strong>. Le produit sera définitivement supprimé s'il n'est lié à aucune vente ni mouvement de stock.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-1"></i>Annuler
+                    </button>
+                    <form method="POST" action="" id="formSupprimer">
+                        <input type="hidden" name="action" value="supprimer">
+                        <input type="hidden" name="produit_id" id="produitIdASupprimer" value="">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash3 me-1"></i>Oui, supprimer
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -287,6 +373,13 @@ try {
                         console.log('Erreur Service Worker:', err);
                     });
             });
+        }
+
+        function confirmerSuppression(id, nom) {
+            document.getElementById('produitIdASupprimer').value = id;
+            document.getElementById('nomProduitASupprimer').textContent = nom;
+            var modal = new bootstrap.Modal(document.getElementById('modalSupprimer'));
+            modal.show();
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

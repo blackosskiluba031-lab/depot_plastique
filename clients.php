@@ -32,6 +32,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Traitement de la suppression
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'supprimer') {
+    try {
+        $id = intval($_POST['client_id']);
+        if ($id <= 0) throw new Exception("Identifiant invalide.");
+
+        // Vérifier si le client a des ventes associées
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM ventes WHERE client_id = ?");
+        $stmt->execute([$id]);
+        $nb_ventes = $stmt->fetchColumn();
+
+        if ($nb_ventes > 0) {
+            throw new Exception("Impossible de supprimer ce client car il est lié à $nb_ventes vente(s). Supprimez d'abord ses ventes ou dissociez-le.");
+        }
+
+        $stmt = $pdo->prepare("DELETE FROM clients WHERE id = ?");
+        $stmt->execute([$id]);
+
+        $message = "Client supprimé avec succès !";
+        $message_type = "success";
+    } catch (Exception $e) {
+        $message = "Erreur: " . $e->getMessage();
+        $message_type = "danger";
+    }
+}
+
 // Recherche
 if (isset($_GET['recherche'])) {
     $recherche = trim($_GET['recherche']);
@@ -95,6 +121,14 @@ try {
         }
         .client-card:hover {
             transform: translateY(-3px);
+        }
+        .btn-delete {
+            opacity: 0.7;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        .btn-delete:hover {
+            opacity: 1;
+            transform: scale(1.1);
         }
     </style>
 </head>
@@ -229,6 +263,7 @@ try {
                                         <th>Téléphone</th>
                                         <th>Type</th>
                                         <th>Date Création</th>
+                                        <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -241,15 +276,24 @@ try {
                                     <?php else: ?>
                                         <?php foreach ($clients as $client): ?>
                                             <tr class="client-card">
-                                                <td class="fw-bold"><?= htmlspecialchars($client['nom']) ?></td>
-                                                <td><?= htmlspecialchars($client['telephone']) ?: '-' ?></td>
-                                                <td>
-                                                    <span class="badge bg-<?= $client['type_client'] === 'Grossiste' ? 'primary' : ($client['type_client'] === 'Recycleur' ? 'warning' : 'secondary') ?>">
-                                                        <?= htmlspecialchars($client['type_client']) ?>
-                                                    </span>
-                                                </td>
-                                                <td><?= date('d/m/Y', strtotime($client['date_creation'])) ?></td>
-                                            </tr>
+                                            <td class="fw-bold"><?= htmlspecialchars($client['nom']) ?></td>
+                                            <td><?= htmlspecialchars($client['telephone']) ?: '-' ?></td>
+                                            <td>
+                                                <span class="badge bg-<?= $client['type_client'] === 'Grossiste' ? 'primary' : ($client['type_client'] === 'Recycleur' ? 'warning' : 'secondary') ?>">
+                                                    <?= htmlspecialchars($client['type_client']) ?>
+                                                </span>
+                                            </td>
+                                            <td><?= date('d/m/Y', strtotime($client['date_creation'])) ?></td>
+                                            <td>
+                                                <button type="button"
+                                                    class="btn btn-sm btn-danger btn-delete"
+                                                    title="Supprimer ce client"
+                                                    onclick="confirmerSuppression(<?= $client['id'] ?>, '<?= htmlspecialchars(addslashes($client['nom'])) ?>')"
+                                                >
+                                                    <i class="bi bi-trash3"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
                                         <?php endforeach; ?>
                                     <?php endif; ?>
                                 </tbody>
@@ -260,6 +304,40 @@ try {
                             <small><?= count($clients) ?> client(s) affiché(s)</small>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de confirmation de suppression -->
+    <div class="modal fade" id="modalSupprimer" tabindex="-1" aria-labelledby="modalSupprimerLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-danger">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="modalSupprimerLabel">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmer la suppression
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-1">Vous allez supprimer le client :</p>
+                    <p class="fw-bold fs-5 text-danger" id="nomClientASupprimer"></p>
+                    <div class="alert alert-warning mt-2 mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Cette action est <strong>irréversible</strong>. La suppression échouera si le client est associé à des ventes existantes.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle me-1"></i>Annuler
+                    </button>
+                    <form method="POST" action="">
+                        <input type="hidden" name="action" value="supprimer">
+                        <input type="hidden" name="client_id" id="clientIdASupprimer" value="">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash3 me-1"></i>Oui, supprimer
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -278,6 +356,13 @@ try {
                         console.log('Erreur Service Worker:', err);
                     });
             });
+        }
+
+        function confirmerSuppression(id, nom) {
+            document.getElementById('clientIdASupprimer').value = id;
+            document.getElementById('nomClientASupprimer').textContent = nom;
+            var modal = new bootstrap.Modal(document.getElementById('modalSupprimer'));
+            modal.show();
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
