@@ -22,11 +22,23 @@ if ($db_url) {
 
 try {
     $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
-    $pdo = new PDO($dsn, $username, $password, [
+    $options = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
-    ]);
+    ];
+
+    // Activer SSL pour les bases cloud comme TiDB Cloud
+    if ($host !== '127.0.0.1' && $host !== 'localhost') {
+        if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+        }
+        if (defined('PDO::MYSQL_ATTR_SSL_CA')) {
+            $options[PDO::MYSQL_ATTR_SSL_CA] = true;
+        }
+    }
+
+    $pdo = new PDO($dsn, $username, $password, $options);
 
     // Auto-création des tables si elles n'existent pas encore (pour déploiement cloud fluide)
     $pdo->exec("
