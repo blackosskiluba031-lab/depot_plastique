@@ -128,6 +128,9 @@ try {
             <a class="navbar-brand" href="index.php">
                 <i class="bi bi-box-seam"></i> Business Moses dépôt plastiques
             </a>
+            <button class="btn btn-sm btn-warning ms-2 pwa-install-btn align-items-center" style="display: none;" onclick="installerPWA()">
+                <i class="bi bi-download me-1"></i> Installer
+            </button>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -291,6 +294,7 @@ try {
     </div>
 
     <!-- Enregistrement du Service Worker PWA -->
+    <script src="pwa-install.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

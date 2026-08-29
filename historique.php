@@ -70,7 +70,7 @@ try {
         LEFT JOIN clients c ON v.client_id = c.id
         JOIN details_vente dv ON v.id = dv.vente_id
         JOIN produits p ON dv.produit_id = p.id
-        GROUP BY v.id
+        GROUP BY v.id, v.date_vente, v.montant_total, c.nom
         
         ORDER BY date DESC
         LIMIT 100
@@ -149,6 +149,9 @@ try {
             <a class="navbar-brand" href="index.php">
                 <i class="bi bi-box-seam"></i> Business Moses dépôt plastiques
             </a>
+            <button class="btn btn-sm btn-warning ms-2 pwa-install-btn align-items-center" style="display: none;" onclick="installerPWA()">
+                <i class="bi bi-download me-1"></i> Installer
+            </button>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -306,6 +309,7 @@ try {
     </div>
 
     <!-- Enregistrement du Service Worker PWA -->
+    <script src="pwa-install.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

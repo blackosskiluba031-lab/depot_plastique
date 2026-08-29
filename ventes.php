@@ -133,11 +133,13 @@ try {
 
     // Récupérer les ventes récentes
     $stmt = $pdo->query("
-        SELECT v.*, c.nom as client_nom, COUNT(dv.id) as nb_articles
+        SELECT v.id, v.client_id, v.date_vente, v.montant_total, v.statut_paiement, 
+               c.nom as client_nom, 
+               COUNT(dv.id) as nb_articles
         FROM ventes v
         LEFT JOIN clients c ON v.client_id = c.id
         LEFT JOIN details_vente dv ON v.id = dv.vente_id
-        GROUP BY v.id
+        GROUP BY v.id, v.client_id, v.date_vente, v.montant_total, v.statut_paiement, c.nom
         ORDER BY v.date_vente DESC
         LIMIT 10
     ");
@@ -204,6 +206,9 @@ try {
             <a class="navbar-brand" href="index.php">
                 <i class="bi bi-box-seam"></i> Business Moses dépôt plastiques
             </a>
+            <button class="btn btn-sm btn-warning ms-2 pwa-install-btn align-items-center" style="display: none;" onclick="installerPWA()">
+                <i class="bi bi-download me-1"></i> Installer
+            </button>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -571,6 +576,7 @@ try {
     </script>
 
     <!-- Enregistrement du Service Worker PWA -->
+    <script src="pwa-install.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

@@ -39,6 +39,13 @@ try {
     }
 
     $pdo = new PDO($dsn, $username, $password, $options);
+    
+    // Désactiver ONLY_FULL_GROUP_BY pour compatibilité totale MySQL 8 / TiDB Cloud
+    try {
+        $pdo->exec("SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'");
+    } catch (Exception $e) {
+        // Ignorer si le serveur ne supporte pas
+    }
 
     // Auto-création des tables si elles n'existent pas encore (pour déploiement cloud fluide)
     $pdo->exec("
