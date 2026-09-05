@@ -63,6 +63,7 @@ try {
             categorie VARCHAR(100),
             unite_mesure VARCHAR(50) DEFAULT 'kg',
             prix_unitaire DECIMAL(10, 2) NOT NULL,
+            prix_achat DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
             quantite_actuelle DECIMAL(10, 2) DEFAULT 0,
             seuil_alerte DECIMAL(10, 2) DEFAULT 10
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -72,7 +73,9 @@ try {
             client_id INT,
             date_vente DATETIME DEFAULT CURRENT_TIMESTAMP,
             montant_total DECIMAL(10, 2) NOT NULL,
-            statut_paiement ENUM('paye', 'en_attente', 'annule') DEFAULT 'en_attente',
+            montant_paye DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+            reste_a_payer DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+            statut_paiement VARCHAR(30) DEFAULT 'cash',
             FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -82,6 +85,7 @@ try {
             produit_id INT NOT NULL,
             quantite DECIMAL(10, 2) NOT NULL,
             prix_applique DECIMAL(10, 2) NOT NULL,
+            prix_achat DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
             FOREIGN KEY (vente_id) REFERENCES ventes(id) ON DELETE CASCADE,
             FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -95,7 +99,66 @@ try {
             date_mouvement DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+        CREATE TABLE IF NOT EXISTS paiements_clients (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            client_id INT NOT NULL,
+            vente_id INT NULL,
+            montant DECIMAL(10, 2) NOT NULL,
+            date_paiement DATETIME DEFAULT CURRENT_TIMESTAMP,
+            mode_paiement VARCHAR(50) DEFAULT 'Cash',
+            notes VARCHAR(255) NULL,
+            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (vente_id) REFERENCES ventes(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+
+    // Migration non destructive des colonnes pour bases existantes
+    try {
+        // Colonne prix_achat dans produits
+        $checkCol = $pdo->query("SHOW COLUMNS FROM produits LIKE 'prix_achat'")->fetch();
+        if (!$checkCol) {
+            $pdo->exec("ALTER TABLE produits ADD COLUMN prix_achat DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER prix_unitaire");
+        }
+
+        // Colonne prix_achat dans details_vente
+        $checkCol = $pdo->query("SHOW COLUMNS FROM details_vente LIKE 'prix_achat'")->fetch();
+        if (!$checkCol) {
+            $pdo->exec("ALTER TABLE details_vente ADD COLUMN prix_achat DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER prix_applique");
+        }
+
+        // Colonnes montant_paye et reste_a_payer dans ventes
+        $checkCol = $pdo->query("SHOW COLUMNS FROM ventes LIKE 'montant_paye'")->fetch();
+        if (!$checkCol) {
+            $pdo->exec("ALTER TABLE ventes ADD COLUMN montant_paye DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER montant_total");
+        }
+        $checkCol = $pdo->query("SHOW COLUMNS FROM ventes LIKE 'reste_a_payer'")->fetch();
+        if (!$checkCol) {
+            $pdo->exec("ALTER TABLE ventes ADD COLUMN reste_a_payer DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER montant_paye");
+        }
+
+        // Modification statut_paiement pour supporter cash, credit, partiel, etc.
+        try {
+            $pdo->exec("ALTER TABLE ventes MODIFY COLUMN statut_paiement VARCHAR(30) DEFAULT 'cash'");
+        } catch (Exception $e) {
+            // Ignorer si déjà configuré
+        }
+
+        // Rétrocompatibilité : initialiser montant_paye et reste_a_payer pour les anciennes ventes
+        $pdo->exec("
+            UPDATE ventes 
+            SET montant_paye = montant_total, reste_a_payer = 0.00, statut_paiement = 'cash' 
+            WHERE statut_paiement = 'paye' AND montant_paye = 0.00 AND montant_total > 0
+        ");
+        $pdo->exec("
+            UPDATE ventes 
+            SET montant_paye = 0.00, reste_a_payer = montant_total, statut_paiement = 'credit' 
+            WHERE statut_paiement = 'en_attente' AND reste_a_payer = 0.00 AND montant_total > 0
+        ");
+        
+    } catch (Exception $e) {
+        // En cas d'erreur mineure de migration, continuer
+    }
 
 } catch (PDOException $e) {
     die("Erreur de connexion à la base de données : " . $e->getMessage());

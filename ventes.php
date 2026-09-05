@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             $client_id = intval($_POST['client_id']);
             $panier_data = json_decode($_POST['panier'], true);
-            $statut_paiement = $_POST['statut_paiement'];
+            $statut_paiement = $_POST['statut_paiement'] ?? 'cash';
 
             if (empty($panier_data)) {
                 throw new Exception("Panier invalide");
@@ -79,18 +79,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $montant_total += $item['prix_unitaire'] * $item['quantite'];
             }
 
+            // Déterminer montant_paye et reste_a_payer
+            if ($statut_paiement === 'cash' || $statut_paiement === 'paye') {
+                $statut_paiement = 'cash';
+                $montant_paye = $montant_total;
+                $reste_a_payer = 0.00;
+            } elseif ($statut_paiement === 'credit' || $statut_paiement === 'en_attente') {
+                $statut_paiement = 'credit';
+                $montant_paye = 0.00;
+                $reste_a_payer = $montant_total;
+            } elseif ($statut_paiement === 'partiel') {
+                $montant_paye = floatval($_POST['montant_paye'] ?? 0);
+                if ($montant_paye <= 0) {
+                    throw new Exception("Veuillez saisir un acompte supérieur à 0 FC pour un paiement partiel");
+                }
+                if ($montant_paye >= $montant_total) {
+                    $statut_paiement = 'cash';
+                    $montant_paye = $montant_total;
+                    $reste_a_payer = 0.00;
+                } else {
+                    $reste_a_payer = round($montant_total - $montant_paye, 2);
+                }
+            } else {
+                $statut_paiement = 'cash';
+                $montant_paye = $montant_total;
+                $reste_a_payer = 0.00;
+            }
+
             $pdo->beginTransaction();
 
             // Créer la vente
-            $stmt = $pdo->prepare("INSERT INTO ventes (client_id, montant_total, statut_paiement) VALUES (?, ?, ?)");
-            $stmt->execute([$client_id, $montant_total, $statut_paiement]);
+            $stmt = $pdo->prepare("INSERT INTO ventes (client_id, montant_total, montant_paye, reste_a_payer, statut_paiement) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $montant_total, $montant_paye, $reste_a_payer, $statut_paiement]);
             $vente_id = $pdo->lastInsertId();
+
+            // Récupérer le prix d'achat de chaque produit
+            $stmt_produit = $pdo->prepare("SELECT prix_achat FROM produits WHERE id = ?");
 
             // Ajouter les détails de vente et déduire le stock
             foreach ($panier_data as $item) {
-                // Insérer dans details_vente
-                $stmt = $pdo->prepare("INSERT INTO details_vente (vente_id, produit_id, quantite, prix_applique) VALUES (?, ?, ?, ?)");
-                $stmt->execute([$vente_id, $item['id'], $item['quantite'], $item['prix_unitaire']]);
+                $stmt_produit->execute([$item['id']]);
+                $prix_achat = floatval($stmt_produit->fetchColumn() ?: 0);
+
+                // Insérer dans details_vente avec prix_achat
+                $stmt = $pdo->prepare("INSERT INTO details_vente (vente_id, produit_id, quantite, prix_applique, prix_achat) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$vente_id, $item['id'], $item['quantite'], $item['prix_unitaire'], $prix_achat]);
 
                 // Déduire du stock
                 $stmt = $pdo->prepare("UPDATE produits SET quantite_actuelle = quantite_actuelle - ? WHERE id = ?");
@@ -131,15 +164,15 @@ try {
     $stmt = $pdo->query("SELECT * FROM produits WHERE quantite_actuelle > 0 ORDER BY nom_article ASC");
     $produits = $stmt->fetchAll();
 
-    // Récupérer les ventes récentes
+    // Récupérer les ventes récentes avec suivi montants payés et dettes
     $stmt = $pdo->query("
-        SELECT v.id, v.client_id, v.date_vente, v.montant_total, v.statut_paiement, 
+        SELECT v.id, v.client_id, v.date_vente, v.montant_total, v.montant_paye, v.reste_a_payer, v.statut_paiement, 
                c.nom as client_nom, 
                COUNT(dv.id) as nb_articles
         FROM ventes v
         LEFT JOIN clients c ON v.client_id = c.id
         LEFT JOIN details_vente dv ON v.id = dv.vente_id
-        GROUP BY v.id, v.client_id, v.date_vente, v.montant_total, v.statut_paiement, c.nom
+        GROUP BY v.id, v.client_id, v.date_vente, v.montant_total, v.montant_paye, v.reste_a_payer, v.statut_paiement, c.nom
         ORDER BY v.date_vente DESC
         LIMIT 10
     ");
@@ -155,12 +188,12 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Moses dépôt plastiques - Caisse / Ventes</title>
     <!-- Configuration PWA -->
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#0d6efd">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Business Moses">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -194,9 +227,10 @@ try {
             font-weight: bold;
             color: #28a745;
         }
-        .statut-paye { background-color: #28a745; }
-        .statut-attente { background-color: #ffc107; color: #000; }
-        .statut-annule { background-color: #dc3545; }
+        .statut-paye, .statut-cash { background-color: #198754; color: #fff; }
+        .statut-attente, .statut-credit { background-color: #dc3545; color: #fff; }
+        .statut-partiel { background-color: #ffc107; color: #000; }
+        .statut-annule { background-color: #6c757d; color: #fff; }
     </style>
 </head>
 <body>
@@ -375,11 +409,22 @@ try {
                             <!-- Statut de paiement -->
                             <div class="mb-3">
                                 <label for="statut_paiement" class="form-label fw-bold">Statut de Paiement</label>
-                                <select class="form-select form-select-lg" id="statut_paiement" name="statut_paiement">
-                                    <option value="paye">Payé</option>
-                                    <option value="en_attente">En attente</option>
-                                    <option value="annule">Annulé</option>
+                                <select class="form-select form-select-lg" id="statut_paiement" name="statut_paiement" onchange="changerStatutPaiement()">
+                                    <option value="cash">Cash (Payé comptant)</option>
+                                    <option value="credit">Crédit (Dette complète)</option>
+                                    <option value="partiel">Paiement Partiel (Acompte + Dette)</option>
                                 </select>
+                            </div>
+
+                            <!-- Montant acompte si paiement partiel -->
+                            <div id="champ_montant_paye" class="mb-3 p-3 bg-light border rounded" style="display: none;">
+                                <label for="montant_paye_input" class="form-label fw-bold text-dark">
+                                    <i class="bi bi-cash-stack"></i> Acompte versé par le client (FC) *
+                                </label>
+                                <input type="number" step="0.01" class="form-control form-control-lg" id="montant_paye_input" name="montant_paye_input" min="0" placeholder="Ex: 5000" oninput="calculerResteAPayer()">
+                                <div class="mt-2 fw-bold" id="affichage_reste_payer">
+                                    Reste à payer (Dette) : <span class="text-danger">0.00 FC</span>
+                                </div>
                             </div>
 
                             <div class="d-grid gap-2">
@@ -398,8 +443,11 @@ try {
             <!-- Ventes récentes -->
             <div class="col-12 col-lg-6 mb-4">
                 <div class="card">
-                    <div class="card-header bg-info text-white">
+                    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <h5 class="mb-0"><i class="bi bi-receipt"></i> Ventes Récentes</h5>
+                        <a href="historique.php?vue=tableur" class="btn btn-sm btn-light text-dark fw-bold">
+                            <i class="bi bi-file-earmark-spreadsheet text-success me-1"></i> Vue Tableur & Bénéfices
+                        </a>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
@@ -408,8 +456,9 @@ try {
                                     <tr>
                                         <th>N°</th>
                                         <th>Client</th>
-                                        <th>Montant</th>
-                                        <th>Articles</th>
+                                        <th>Total</th>
+                                        <th>Payé</th>
+                                        <th>Dette</th>
                                         <th>Statut</th>
                                         <th>Date</th>
                                         <th>Action</th>
@@ -419,12 +468,34 @@ try {
                                     <?php foreach ($ventes_recentes as $vente): ?>
                                         <tr>
                                             <td>#<?= $vente['id'] ?></td>
-                                            <td><?= htmlspecialchars($vente['client_nom'] ?? 'Client supprimé') ?></td>
+                                            <td class="fw-bold"><?= htmlspecialchars($vente['client_nom'] ?? 'Client supprimé') ?></td>
                                             <td class="fw-bold"><?= number_format($vente['montant_total'], 2) ?> FC</td>
-                                            <td><?= $vente['nb_articles'] ?></td>
+                                            <td class="text-success fw-bold"><?= number_format($vente['montant_paye'] ?? $vente['montant_total'], 2) ?> FC</td>
                                             <td>
-                                                <span class="badge statut-<?= $vente['statut_paiement'] ?>">
-                                                    <?= ucfirst(str_replace('_', ' ', $vente['statut_paiement'])) ?>
+                                                <?php if (($vente['reste_a_payer'] ?? 0) > 0): ?>
+                                                    <span class="text-danger fw-bold"><?= number_format($vente['reste_a_payer'], 2) ?> FC</span>
+                                                <?php else: ?>
+                                                    <span class="text-muted">0 FC</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                    $statut_key = $vente['statut_paiement'];
+                                                    $statut_label = 'Cash';
+                                                    $statut_badge = 'bg-success';
+                                                    if ($statut_key === 'credit' || $statut_key === 'en_attente') {
+                                                        $statut_label = 'Crédit';
+                                                        $statut_badge = 'bg-danger';
+                                                    } elseif ($statut_key === 'partiel') {
+                                                        $statut_label = 'Partiel';
+                                                        $statut_badge = 'bg-warning text-dark';
+                                                    } elseif ($statut_key === 'annule') {
+                                                        $statut_label = 'Annulé';
+                                                        $statut_badge = 'bg-secondary';
+                                                    }
+                                                ?>
+                                                <span class="badge <?= $statut_badge ?>">
+                                                    <?= $statut_label ?>
                                                 </span>
                                             </td>
                                             <td><?= date('d/m/Y H:i', strtotime($vente['date_vente'])) ?></td>
@@ -515,6 +586,33 @@ try {
 
             itemsContainer.innerHTML = html;
             totalElement.textContent = total.toFixed(2);
+            calculerResteAPayer();
+        }
+
+        function changerStatutPaiement() {
+            const statut = document.getElementById('statut_paiement').value;
+            const champAcompte = document.getElementById('champ_montant_paye');
+            if (statut === 'partiel') {
+                champAcompte.style.display = 'block';
+                calculerResteAPayer();
+            } else {
+                champAcompte.style.display = 'none';
+            }
+        }
+
+        function calculerResteAPayer() {
+            let total = 0;
+            panier.forEach(item => {
+                total += item.prix_unitaire * item.quantite;
+            });
+            const inputAcompte = document.getElementById('montant_paye_input');
+            const affichage = document.getElementById('affichage_reste_payer');
+            if (!inputAcompte || !affichage) return;
+
+            const montantPaye = parseFloat(inputAcompte.value) || 0;
+            const reste = Math.max(0, total - montantPaye);
+            
+            affichage.innerHTML = `Reste à payer (Dette) : <span class="${reste > 0 ? 'text-danger' : 'text-success'}">${reste.toFixed(2)} FC</span>`;
         }
 
         function retirerDuPanier(index) {
@@ -539,6 +637,23 @@ try {
             if (panier.length === 0) {
                 alert('Le panier est vide');
                 return;
+            }
+
+            let total = 0;
+            panier.forEach(item => {
+                total += item.prix_unitaire * item.quantite;
+            });
+
+            let montantPaye = total;
+            if (statutPaiement === 'credit') {
+                montantPaye = 0;
+            } else if (statutPaiement === 'partiel') {
+                montantPaye = parseFloat(document.getElementById('montant_paye_input').value) || 0;
+                if (montantPaye <= 0) {
+                    alert('Veuillez saisir un acompte supérieur à 0 FC pour un paiement partiel.');
+                    document.getElementById('montant_paye_input').focus();
+                    return;
+                }
             }
 
             // Créer un formulaire caché pour soumettre
@@ -569,6 +684,12 @@ try {
             statutInput.name = 'statut_paiement';
             statutInput.value = statutPaiement;
             form.appendChild(statutInput);
+
+            const montantPayeInput = document.createElement('input');
+            montantPayeInput.type = 'hidden';
+            montantPayeInput.name = 'montant_paye';
+            montantPayeInput.value = montantPaye;
+            form.appendChild(montantPayeInput);
 
             document.body.appendChild(form);
             form.submit();

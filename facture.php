@@ -57,12 +57,12 @@ if ($vente_id <= 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ticket #<?= $vente ? $vente['id'] : '' ?> - Business Moses dépôt plastiques</title>
     <!-- Configuration PWA -->
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#0d6efd">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Business Moses">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -377,18 +377,35 @@ if ($vente_id <= 0) {
                     <span><?= number_format($vente['montant_total'], 2, ',', ' ') ?> FC</span>
                 </div>
 
+                <div class="ticket-row">
+                    <span>MONTANT PAYÉ :</span>
+                    <strong class="text-success"><?= number_format($vente['montant_paye'] ?? $vente['montant_total'], 2, ',', ' ') ?> FC</strong>
+                </div>
+
+                <?php if (($vente['reste_a_payer'] ?? 0) > 0): ?>
+                    <div class="ticket-row">
+                        <span>RESTE À PAYER (DETTE) :</span>
+                        <strong class="text-danger"><?= number_format($vente['reste_a_payer'], 2, ',', ' ') ?> FC</strong>
+                    </div>
+                <?php endif; ?>
+
                 <div class="ticket-separator"></div>
 
                 <div class="ticket-row">
                     <span>STATUT PAIEMENT :</span>
                     <strong class="text-uppercase">
-                        <?php if ($vente['statut_paiement'] === 'paye'): ?>
-                            [ PAYÉ ]
-                        <?php elseif ($vente['statut_paiement'] === 'en_attente'): ?>
-                            [ EN ATTENTE ]
-                        <?php else: ?>
-                            [ <?= strtoupper(htmlspecialchars($vente['statut_paiement'])) ?> ]
-                        <?php endif; ?>
+                        <?php 
+                            $statut = $vente['statut_paiement'];
+                            if ($statut === 'cash' || $statut === 'paye') {
+                                echo '[ CASH / PAYÉ ]';
+                            } elseif ($statut === 'credit' || $statut === 'en_attente') {
+                                echo '[ CRÉDIT TOTAL ]';
+                            } elseif ($statut === 'partiel') {
+                                echo '[ PAIEMENT PARTIEL ]';
+                            } else {
+                                echo '[ ' . strtoupper(htmlspecialchars($statut)) . ' ]';
+                            }
+                        ?>
                     </strong>
                 </div>
 

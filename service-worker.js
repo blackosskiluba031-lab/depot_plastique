@@ -1,4 +1,4 @@
-const CACHE_NAME = 'business-moses-v1';
+const CACHE_NAME = 'business-moses-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.php',
@@ -7,7 +7,9 @@ const ASSETS_TO_CACHE = [
   './mouvements.php',
   './clients.php',
   './historique.php',
+  './facture.php',
   './manifest.json',
+  './pwa-install.js',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css',
@@ -15,13 +17,18 @@ const ASSETS_TO_CACHE = [
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js'
 ];
 
-// Installation du Service Worker
+// Installation du Service Worker avec mise en cache résiliente
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn('Certains assets statiques ne peuvent pas être mis en cache immédiat:', err);
-      });
+      // Mettre en cache chaque ressource individuellement pour éviter qu'un échec unique ne bloque l'installation PWA
+      return Promise.allSettled(
+        ASSETS_TO_CACHE.map((asset) =>
+          cache.add(asset).catch((err) => {
+            console.warn('Ressource non mise en cache immédiat:', asset, err);
+          })
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -43,15 +50,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Stratégie Network-First avec fallback Cache (adapté aux applications dynamiques PHP)
+// Stratégie Network-First avec repli Cache pour mode hors-ligne
 self.addEventListener('fetch', (event) => {
-  // Ignorer les requêtes non-GET ou externes non critiques
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Mettre à jour le cache si réponse valide
         if (networkResponse && networkResponse.status === 200) {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -61,8 +66,15 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        // En cas de coupure internet, récupérer depuis le cache
-        return caches.match(event.request);
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // Si navigation HTML hors-ligne sans cache direct, proposer index.php en repli
+          if (event.request.mode === 'navigate') {
+            return caches.match('./index.php') || caches.match('./');
+          }
+        });
       })
   );
 });

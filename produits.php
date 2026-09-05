@@ -16,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $categorie = trim($_POST['categorie']);
         $unite_mesure = trim($_POST['unite_mesure']);
         $prix_unitaire = floatval($_POST['prix_unitaire']);
+        $prix_achat = isset($_POST['prix_achat']) ? floatval($_POST['prix_achat']) : 0.00;
         $quantite_actuelle = floatval($_POST['quantite_actuelle']);
         $seuil_alerte = floatval($_POST['seuil_alerte']);
 
@@ -24,11 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
 
         if ($prix_unitaire <= 0) {
-            throw new Exception("Le prix unitaire doit être positif");
+            throw new Exception("Le prix de vente unitaire doit être positif");
         }
 
-        $stmt = $pdo->prepare("INSERT INTO produits (nom_article, categorie, unite_mesure, prix_unitaire, quantite_actuelle, seuil_alerte) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$nom_article, $categorie, $unite_mesure, $prix_unitaire, $quantite_actuelle, $seuil_alerte]);
+        $stmt = $pdo->prepare("INSERT INTO produits (nom_article, categorie, unite_mesure, prix_unitaire, prix_achat, quantite_actuelle, seuil_alerte) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nom_article, $categorie, $unite_mesure, $prix_unitaire, $prix_achat, $quantite_actuelle, $seuil_alerte]);
 
         $message = "Produit ajouté avec succès !";
         $message_type = "success";
@@ -87,12 +88,12 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Business Moses dépôt plastiques - Gestion Produits</title>
     <!-- Configuration PWA -->
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#0d6efd">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Business Moses">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -230,8 +231,14 @@ try {
                             </div>
 
                             <div class="mb-3">
-                                <label for="prix_unitaire" class="form-label fw-bold">Prix unitaire (FC) *</label>
+                                <label for="prix_unitaire" class="form-label fw-bold">Prix de vente unitaire (FC) *</label>
                                 <input type="number" step="0.01" class="form-control form-control-lg" id="prix_unitaire" name="prix_unitaire" required min="0.01" placeholder="Ex: 1500">
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="prix_achat" class="form-label fw-bold">Prix d'achat unitaire (FC)</label>
+                                <input type="number" step="0.01" class="form-control form-control-lg" id="prix_achat" name="prix_achat" min="0" value="0" placeholder="Ex: 1000 (Optionnel)">
+                                <small class="text-muted">Utilisé pour calculer automatiquement le bénéfice net.</small>
                             </div>
 
                             <div class="mb-3">
@@ -269,14 +276,14 @@ try {
                             </div>
                         <?php else: ?>
                             <div class="table-responsive">
-                                <table class="table table-hover">
+                                <table class="table table-hover align-middle">
                                     <thead>
                                         <tr>
                                             <th>Article</th>
                                             <th>Catégorie</th>
                                             <th>Stock</th>
-                                            <th>Prix</th>
-                                            <th>Seuil</th>
+                                            <th>Prix Vente</th>
+                                            <th>Prix Achat</th>
                                             <th>Statut</th>
                                             <th>Action</th>
                                         </tr>
@@ -291,13 +298,13 @@ try {
                                                         <?= number_format($produit['quantite_actuelle'], 2) ?> <?= htmlspecialchars($produit['unite_mesure']) ?>
                                                     </span>
                                                 </td>
-                                                <td><?= number_format($produit['prix_unitaire'], 2) ?> FC</td>
-                                                <td><?= number_format($produit['seuil_alerte'], 2) ?></td>
+                                                <td class="fw-bold text-primary"><?= number_format($produit['prix_unitaire'], 2) ?> FC</td>
+                                                <td class="text-muted"><?= number_format($produit['prix_achat'] ?? 0, 2) ?> FC</td>
                                                 <td>
                                                     <?php if ($produit['quantite_actuelle'] <= $produit['seuil_alerte']): ?>
                                                         <span class="badge bg-danger">Faible</span>
                                                     <?php elseif ($produit['quantite_actuelle'] <= $produit['seuil_alerte'] * 2): ?>
-                                                        <span class="badge bg-warning">Modéré</span>
+                                                        <span class="badge bg-warning text-dark">Modéré</span>
                                                     <?php else: ?>
                                                         <span class="badge bg-success">OK</span>
                                                     <?php endif; ?>
